@@ -1,0 +1,23 @@
+[
+    {
+        "bloco": "H e C",
+        "registro": "H005 / C170",
+        "tipo_inconsistencia": "Inconsistência Crítica no Fluxo de Estoque",
+        "descricao": "O estoque não bate. Incial: R$0.00 + Entradas: R$55.00 = Esperado: R$55.00. Declarado foi R$0.00.",
+        "irregularidade_possivel": "Omissão de vendas (vendas não registradas) ou erro grave no registro de entradas/inventário."
+    },
+    {
+        "bloco": "E e C",
+        "registro": "E110 / C170",
+        "tipo_inconsistencia": "Apuração de ICMS Incompatível",
+        "descricao": "A soma do ICMS nos itens (Bloco C) é de R$18.00, mas o total de débitos no Bloco E é R$0.00.",
+        "irregularidade_possivel": "Débito de imposto omitido, levando ao não recolhimento do ICMS devido."
+    },
+    {
+        "bloco": "C",
+        "registro": "C100",
+        "tipo_inconsistencia": "Quebra na Sequência Numérica de Notas",
+        "descricao": "A numeração de notas regrediu. O número máximo no mês anterior foi 31082025 e o mínimo no mês atual foi 5062025.",
+        "irregularidade_possivel": "Pode indicar omissão de notas fiscais (a 'lacuna' entre os números não foi declarada) ou reinício indevido de série."
+    }
+]

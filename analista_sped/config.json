@@ -1,0 +1,13 @@
+{
+  "limiares": {
+    "variacao_maxima_notas_percentual": 50.0
+  },
+  "regras_ativas": {
+    "validar_fluxo_estoque": true,
+    "validar_apuracao_icms": true,
+    "validar_sequencia_notas": true,
+    "validar_cfop_vs_operacao": true,
+    "validar_notas_canceladas": true,
+    "validar_credito_indevido_consumo": true
+  }
+}
