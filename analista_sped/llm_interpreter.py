@@ -3,18 +3,13 @@ import json
 import ollama
 from typing import List, Dict, Any
 
+
 def gerar_interpretacao_llm(achados: List[Dict[str, Any]]) -> str:
-    """
-    Envia os achados do pré-processamento para o Llama 3 via biblioteca ollama
-    e retorna a interpretação textual do modelo.
-    """
     if not achados:
         return "Análise concluída. Nenhuma inconsistência foi encontrada pelo script de pré-processamento."
 
-    # Converte a lista de dicionários Python em uma string JSON bem formatada
     achados_json_str = json.dumps(achados, indent=2, ensure_ascii=False)
 
-    # Prompt robusto que define a persona, a tarefa e o formato da resposta esperada
     prompt = f"""
     Você é um Auditor Fiscal Sênior, especialista em SPED Fiscal e legislação tributária.
     Sua tarefa é analisar um resumo de inconsistências, gerado por um script, que comparou dois arquivos SPED de meses consecutivos.
@@ -35,15 +30,16 @@ def gerar_interpretacao_llm(achados: List[Dict[str, Any]]) -> str:
     print("\nEnviando dados para análise do Llama 3. Isso pode levar um momento...")
 
     try:
-        # A chamada para o modelo local usando a biblioteca ollama
         response = ollama.generate(
-            model='llama3.1:latest',  # Garanta que este modelo está disponível no seu Ollama
-            prompt=prompt
+            model="llama3.1:latest", 
+            prompt=prompt,
         )
-        
+
         # Extrai o texto da resposta do dicionário retornado
         print("Relatório de interpretação recebido do LLM.")
-        return response.get('response', "Nenhuma resposta textual foi recebida do modelo.")
+        return response.get(
+            "response", "Nenhuma resposta textual foi recebida do modelo."
+        )
 
     except ollama.ResponseError as e:
         error_message = f"Erro retornado pela API do Ollama: {e.error}"

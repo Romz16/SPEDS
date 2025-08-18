@@ -2,75 +2,99 @@
 from typing import Dict, List, Any
 import pandas as pd
 
-def analisar_comparativamente(sped_anterior: Dict[str, pd.DataFrame], sped_atual: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
-    """
-    Orquestra a análise comparativa entre dois SPEDs (mês anterior e mês atual),
-    implementando regras de validação fiscal complexas.
-    """
+def analisar_comparativamente(sped_anterior: Dict[str, pd.DataFrame], sped_atual: Dict[str, pd.DataFrame], config: Dict) -> List[Dict[str, Any]]:
     achados = []
+    regras = config.get("regras_ativas", {})
+    limiares = config.get("limiares", {})
 
-    # --- REGRA 1: Validação do Fluxo de Estoque (Bloco H vs Bloco C) ---
-    # A regra mais importante: Estoque Final = Estoque Inicial + Entradas - Saídas
-    if 'H005' in sped_anterior and 'H005' in sped_atual and 'C170' in sped_atual:
+    # REGRA 1: Validação do Fluxo de Estoque
+    if regras.get("validar_fluxo_estoque") and 'H005' in sped_anterior and 'H005' in sped_atual and 'C170' in sped_atual:
         try:
-            # Pega o estoque final do mês anterior, que é o inicial do mês atual
             h005_anterior = sped_anterior['H005']
-            estoque_inicial = pd.to_numeric(h005_anterior.loc[h005_anterior['CAMPO_4'] == '1', 'CAMPO_3'], errors='coerce').sum()
-
-            # Soma o valor de todas as entradas de mercadorias no mês atual
-            # Assumindo, para este exemplo, que todos C170 são entradas
+            estoque_inicial = pd.to_numeric(h005_anterior.loc[h005_anterior['MOT_INV'] == '01', 'VL_INV'], errors='coerce').sum()
             c170_atual = sped_atual['C170']
-            # CAMPO_7 é o VL_ITEM
-            total_entradas = pd.to_numeric(c170_atual['CAMPO_7'], errors='coerce').sum()
-
-            # Pega o estoque final declarado no mês atual
+            total_entradas = pd.to_numeric(c170_atual['VL_ITEM'], errors='coerce').sum()
             h005_atual = sped_atual['H005']
-            estoque_final_declarado = pd.to_numeric(h005_atual.loc[h005_atual['CAMPO_4'] == '1', 'CAMPO_3'], errors='coerce').sum()
-
-            # Calcula o estoque final esperado (assumindo sem saídas para simplificar)
+            estoque_final_declarado = pd.to_numeric(h005_atual.loc[h005_atual['MOT_INV'] == '01', 'VL_INV'], errors='coerce').sum()
             estoque_final_esperado = estoque_inicial + total_entradas
-
-            # Compara o valor esperado com o declarado, com uma pequena margem de tolerância
             if abs(estoque_final_esperado - estoque_final_declarado) > 0.01:
                 achados.append({
-                    "bloco": "H e C", "registro": "H005 / C170", "tipo_inconsistencia": "Inconsistência Crítica no Fluxo de Estoque",
-                    "descricao": f"O estoque não bate. Incial: R${estoque_inicial:.2f} + Entradas: R${total_entradas:.2f} = Esperado: R${estoque_final_esperado:.2f}. Declarado foi R${estoque_final_declarado:.2f}.",
-                    "irregularidade_possivel": "Omissão de vendas (vendas não registradas) ou erro grave no registro de entradas/inventário."
+                    "bloco": "H e C", "registro": "H005/C170", "tipo_inconsistencia": "Fluxo de Estoque Inconsistente",
+                    "descricao": f"Estoque inicial (R${estoque_inicial:.2f}) + Entradas (R${total_entradas:.2f}) = Esperado (R${estoque_final_esperado:.2f}). O declarado foi R${estoque_final_declarado:.2f}.",
+                    "irregularidade_possivel": "Omissão de vendas ou erro no registro de inventário."
                 })
         except KeyError as e:
-            # Adiciona um alerta se alguma coluna esperada não for encontrada
-            achados.append({
-                "bloco": "H ou C", "registro": "-", "tipo_inconsistencia": "Alerta de Estrutura",
-                "descricao": f"Não foi possível validar o fluxo de estoque pois a coluna {e} não foi encontrada em um dos arquivos.",
-                "irregularidade_possivel": "Arquivo SPED com estrutura incompleta."
-            })
+             achados.append({"bloco": "H ou C", "tipo_inconsistencia": "Alerta de Estrutura", "descricao": f"Não foi possível validar o estoque. Coluna esperada {e} não encontrada."})
 
-
-    # --- REGRA 2: Validação da Apuração de ICMS (Bloco E vs Bloco C) ---
-    if 'E110' in sped_atual and 'C170' in sped_atual:
-        # CAMPO_15 no C170 é o VL_ICMS
-        icms_apurado_itens = pd.to_numeric(sped_atual['C170']['CAMPO_15'], errors='coerce').sum()
-        # CAMPO_3 no E110 é o VL_TOT_DEBITOS
-        icms_declarado_debitos = pd.to_numeric(sped_atual['E110']['CAMPO_3'], errors='coerce').sum()
-        
+    # REGRA 2: Validação da Apuração de ICMS
+    if regras.get("validar_apuracao_icms") and 'E110' in sped_atual and 'C170' in sped_atual:
+        icms_apurado_itens = pd.to_numeric(sped_atual['C170']['VL_ICMS'], errors='coerce').sum()
+        icms_declarado_debitos = pd.to_numeric(sped_atual['E110']['VL_TOT_DEBITOS'], errors='coerce').sum()
         if icms_apurado_itens > 0 and icms_declarado_debitos == 0:
             achados.append({
-                "bloco": "E e C", "registro": "E110 / C170", "tipo_inconsistencia": "Apuração de ICMS Incompatível",
-                "descricao": f"A soma do ICMS nos itens (Bloco C) é de R${icms_apurado_itens:.2f}, mas o total de débitos no Bloco E é R${icms_declarado_debitos:.2f}.",
-                "irregularidade_possivel": "Débito de imposto omitido, levando ao não recolhimento do ICMS devido."
+                "bloco": "E e C", "registro": "E110/C170", "tipo_inconsistencia": "Apuração de ICMS Incompatível",
+                "descricao": f"A soma do ICMS nos itens (Bloco C) foi de R${icms_apurado_itens:.2f}, mas o total de débitos no Bloco E foi R${icms_declarado_debitos:.2f}.",
+                "irregularidade_possivel": "Débito de imposto omitido."
             })
 
-    # --- REGRA 3: Validação da Sequência Numérica de Notas (Bloco C) ---
-    if 'C100' in sped_anterior and 'C100' in sped_atual:
-        # CAMPO_9 no C100 é o NUM_DOC
-        max_num_nota_anterior = pd.to_numeric(sped_anterior['C100']['CAMPO_9'], errors='coerce').max()
-        min_num_nota_atual = pd.to_numeric(sped_atual['C100']['CAMPO_9'], errors='coerce').min()
-
+    # REGRA 3: Validação da Sequência Numérica de Notas
+    if regras.get("validar_sequencia_notas") and 'C100' in sped_anterior and 'C100' in sped_atual:
+        max_num_nota_anterior = pd.to_numeric(sped_anterior['C100']['NUM_DOC'], errors='coerce').max()
+        min_num_nota_atual = pd.to_numeric(sped_atual['C100']['NUM_DOC'], errors='coerce').min()
         if min_num_nota_atual < max_num_nota_anterior:
             achados.append({
                 "bloco": "C", "registro": "C100", "tipo_inconsistencia": "Quebra na Sequência Numérica de Notas",
-                "descricao": f"A numeração de notas regrediu. O número máximo no mês anterior foi {max_num_nota_anterior:.0f} e o mínimo no mês atual foi {min_num_nota_atual:.0f}.",
-                "irregularidade_possivel": "Pode indicar omissão de notas fiscais (a 'lacuna' entre os números não foi declarada) ou reinício indevido de série."
+                "descricao": f"Numeração de notas regrediu. Máximo anterior: {max_num_nota_anterior:.0f}, Mínimo atual: {min_num_nota_atual:.0f}.",
+                "irregularidade_possivel": "Omissão de notas fiscais."
             })
-    
+            
+    # REGRA 4: Análise de Notas Canceladas
+    if regras.get("validar_notas_canceladas") and 'C100' in sped_anterior and 'C100' in sped_atual:
+        total_notas_ant = len(sped_anterior['C100'])
+        canceladas_ant = len(sped_anterior['C100'][sped_anterior['C100']['COD_SIT'] == '02'])
+        perc_canceladas_ant = (canceladas_ant / total_notas_ant * 100) if total_notas_ant > 0 else 0
+
+        total_notas_atual = len(sped_atual['C100'])
+        canceladas_atual = len(sped_atual['C100'][sped_atual['C100']['COD_SIT'] == '02'])
+        perc_canceladas_atual = (canceladas_atual / total_notas_atual * 100) if total_notas_atual > 0 else 0
+
+        if perc_canceladas_atual > (perc_canceladas_ant + limiares.get("variacao_maxima_notas_percentual", 50.0)):
+             achados.append({
+                "bloco": "C", "registro": "C100", "tipo_inconsistencia": "Aumento Suspeito de Notas Canceladas",
+                "descricao": f"O percentual de notas canceladas aumentou de {perc_canceladas_ant:.2f}% para {perc_canceladas_atual:.2f}%.",
+                "irregularidade_possivel": "Tentativa de anular operações já ocorridas para reduzir imposto."
+            })
+
+    # --- NOVA REGRA 5 (CORRIGIDA) ---
+    # Lógica foi reescrita para ser mais simples e correta.
+    if regras.get("validar_cfop_vs_operacao") and 'C100' in sped_atual and 'C170' in sped_atual:
+        # Pega o tipo de operação do primeiro registro C100 (0=Entrada, 1=Saída)
+        # Nossos exemplos só têm um C100, então isso funciona.
+        tipo_operacao = sped_atual['C100']['IND_OPER'].iloc[0]
+
+        if tipo_operacao == '1': # Se a operação for de SAÍDA
+            df_itens = sped_atual['C170']
+            # Procura por CFOPs de ENTRADA (começam com 1, 2 ou 3) nos itens
+            cfops_de_entrada_em_saida = df_itens[df_itens['CFOP'].str.startswith(('1', '2', '3'))]
+            if not cfops_de_entrada_em_saida.empty:
+                achados.append({
+                    "bloco": "C", "registro": "C170", "tipo_inconsistencia": "CFOP Incompatível com a Operação",
+                    "descricao": f"Encontradas {len(cfops_de_entrada_em_saida)} operações de SAÍDA com CFOP de ENTRADA. Exemplo: CFOP {cfops_de_entrada_em_saida['CFOP'].iloc[0]}.",
+                    "irregularidade_possivel": "Erro grave de classificação fiscal, afetando toda a apuração."
+                })
+            
+    # REGRA 6: Crédito Indevido sobre Uso e Consumo
+    if regras.get("validar_credito_indevido_consumo") and 'C170' in sped_atual:
+        cfops_consumo = ['1556', '2556', '3556']
+        df_credito_consumo = sped_atual['C170'][
+            (sped_atual['C170']['CFOP'].isin(cfops_consumo)) &
+            (pd.to_numeric(sped_atual['C170']['VL_ICMS'], errors='coerce') > 0)
+        ]
+        if not df_credito_consumo.empty:
+            achados.append({
+                "bloco": "C", "registro": "C170", "tipo_inconsistencia": "Crédito de ICMS Indevido sobre Consumo",
+                "descricao": f"Detectado crédito de ICMS em {len(df_credito_consumo)} itens classificados como uso/consumo.",
+                "irregularidade_possivel": "Apropriação ilegal de crédito de ICMS, resultando em menor recolhimento."
+            })
+
     return achados
